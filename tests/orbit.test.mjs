@@ -8,10 +8,12 @@ import {
   boardIssue,
   buildBoard,
   buildRadar,
+  categoryPlan,
   comparableRows,
   confidenceFor,
   dataScript,
   explorerRows,
+  farmSteps,
   fittedComparables,
   impliedValue,
   liveRows,
@@ -89,8 +91,55 @@ test('board covers watchlist, has stable ranks, descending values and research-o
   assert.ok(board.every((row) => row.evidence_status === 'snapshot-only'));
   assert.ok(board.every((row) => row.farm_gas_usd === null && row.capital_at_risk_usd === null));
   assert.ok(board.every((row) => ['review', 'watch', 'low'].includes(row.research_priority)));
-  assert.ok(board.every((row) => row.farm_steps.length === 6));
+  assert.ok(board.every((row) => row.farm_steps.length === 7));
   assert.ok(board.every((row) => row.farm_steps.every((step) => step.length >= 20 && step.length <= 600)));
+});
+
+test('farm plan is category-specific, not one generic checklist', () => {
+  const dex = { slug: 'dex-one', name: 'Dex One', category: 'Dexs', chains: ['Ethereum'], tvl_usd: 80_000_000, change_7d: 2.5, mcap_usd: null, listed_at: '2024-01-01', gecko_id: null, symbol: null };
+  const lend = { slug: 'lend-one', name: 'Lend One', category: 'Lending', chains: ['Ethereum'], tvl_usd: 80_000_000, change_7d: 2.5, mcap_usd: null, listed_at: '2024-01-01', gecko_id: null, symbol: null };
+  const dexSteps = farmSteps(dex, 300).map((s) => `${s.text} Cost: ${s.cost}. Time: ${s.time}.`);
+  const lendSteps = farmSteps(lend, 300).map((s) => `${s.text} Cost: ${s.cost}. Time: ${s.time}.`);
+  assert.equal(dexSteps.length, 7);
+  assert.notEqual(dexSteps[2], lendSteps[2]);
+  assert.notEqual(dexSteps[3], lendSteps[3]);
+  assert.notEqual(dexSteps[5], lendSteps[5]);
+  assert.match(dexSteps[2], /swap/i);
+  assert.match(lendSteps[2], /borrow/i);
+  assert.ok(dexSteps.every((s) => s.includes('Dex One')));
+  assert.ok(lendSteps.every((s) => s.includes('Lend One')));
+  // Every category plan in the board's 30 categories resolves, never falls back silently for a known category.
+  for (const cat of ['Risk Curators', 'RWA', 'Yield', 'CDP', 'Derivatives', 'Chain', 'Restaking', 'Insurance', 'Payments', 'Indexes']) {
+    assert.notEqual(categoryPlan(cat).a, categoryPlan(null).a);
+  }
+  assert.equal(categoryPlan('Not A Category').a, categoryPlan(null).a);
+});
+
+test('farm plan never fabricates a campaign, reward, deposit or cost', () => {
+  const snapshot = parsedFixture();
+  const board = buildBoard(snapshot);
+  for (const row of board) {
+    for (const step of row.farm_steps) {
+      assert.doesNotMatch(step, /confirmed campaign|guaranteed reward|airdrop confirmed/i);
+      assert.doesNotMatch(step, /\$\d+(\.\d+)?\s*(gas|deposit|minimum|fee)/i);
+      assert.doesNotMatch(step, /deposit \$|send \$|invest \$/i);
+    }
+    assert.ok(row.farm_steps[4].includes('UNVERIFIED'));
+    assert.ok(row.farm_steps.some((s) => s.includes('not estimable from this snapshot')));
+  }
+});
+
+test('farm plan step 2 is never truncated on many-chain protocols', () => {
+  // Regression: vfat.io (39 chains) and steer-protocol (45 chains) had their
+  // step 2 cut at the 600-character gate, losing the Cost/Time tail.
+  const manyChains = Array.from({ length: 45 }, (_, i) => `Chain${i + 1}`);
+  const p = { slug: 'many-chain', name: 'Many Chain', category: 'Dexs', chains: manyChains, tvl_usd: 80_000_000, change_7d: 2.5, mcap_usd: null, listed_at: '2024-01-01', gecko_id: null, symbol: null };
+  const steps = farmSteps(p, 300).map((s) => `${s.text} Cost: ${s.cost}. Time: ${s.time}.`);
+  assert.equal(steps.length, 7);
+  assert.ok(steps.every((s) => s.length >= 20 && s.length <= 600));
+  assert.ok(steps.every((s) => s.includes('Cost:') && s.includes('Time:')));
+  assert.doesNotMatch(steps[1], /\.\.\.$/);
+  assert.match(steps[1], /45 chains in total/);
 });
 
 test('quality gate rejects fabricated cost estimates', () => {

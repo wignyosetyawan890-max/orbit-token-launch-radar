@@ -396,45 +396,114 @@ export function stepText(step: FarmStep): string {
 }
 
 /**
- * Six-step research-only playbook. The frozen snapshot has no official
- * project URLs, contract addresses, campaign flags, eligibility rules,
- * minimum deposits, lockups, gas quotes or reward terms. It is therefore
- * unsafe and factually unsupported to prescribe deposits, swaps, holding
- * periods, capital amounts or gas budgets. Every row stays unverified
- * until primary-source evidence is collected outside this snapshot.
+ * Category-specific product actions, keyed by the snapshot's own DefiLlama
+ * category. These are the only product verbs the plan ever uses: they come
+ * from what the category means (a Dex swaps, a lending market lends), never
+ * from an invented campaign, token, contract, amount or reward. Every
+ * action is conditional on steps 1-2 verifying the official site and
+ * contracts first, and every row stays UNVERIFIED until primary-source
+ * campaign evidence is collected outside this snapshot. The snapshot has
+ * no official URLs, contract addresses, campaign flags, eligibility rules,
+ * minimum deposits, lockups, gas quotes or reward terms, so no step may
+ * prescribe a deposit, swap size, holding period, capital amount or gas
+ * budget. Cost/time fields state review effort honestly; on-chain cost is
+ * always "not estimable from this snapshot".
+ */
+export interface CategoryPlan { a: string; b: string; risk: string }
+export const CATEGORY_PLANS: Record<string, CategoryPlan> = {
+  'Dexs': { a: 'Open the swap interface and check available trading pairs, quoted price, slippage and pool depth', b: 'Check liquidity provision: pool composition, fee tier, share of pool and impermanent-loss exposure', risk: 'impermanent loss, slippage, pool fee changes and smart-contract risk' },
+  'Lending': { a: 'Review the supply and borrow markets: available assets, interest rates, collateral factors and liquidation thresholds', b: 'Check a borrow position health factor and liquidation price with the protocol own calculator before borrowing', risk: 'liquidation, interest-rate changes, oracle failure and bad-debt risk' },
+  'Risk Curators': { a: 'Review the curator vaults: strategy description, allocated markets, caps and historical allocation changes', b: 'Compare the curator stated risk limits with the vault actual exposures and withdrawal terms', risk: 'curator allocation decisions, vault strategy drift, withdrawal delays and smart-contract risk' },
+  'RWA': { a: 'Identify the underlying real-world asset, issuer, custodian and redemption process from official documentation', b: 'Check token holder rights, transfer restrictions, minimums and redemption timelines as published by the issuer', risk: 'issuer and custodian counterparty risk, redemption restrictions, regulatory and valuation risk' },
+  'Yield': { a: 'Read the yield strategy: where yield comes from, underlying venues, and how returns are calculated and distributed', b: 'Check the strategy historical returns, fees, withdrawal terms and what happens when underlying yield falls', risk: 'strategy underperformance, underlying venue risk, fee drag and withdrawal constraints' },
+  'Onchain Capital Allocator': { a: 'Review the allocator strategy, target venues, allocation weights and rebalancing rules', b: 'Check performance reporting, fees, and how capital is moved between venues', risk: 'allocation decisions, venue concentration, rebalancing and smart-contract risk' },
+  'Derivatives': { a: 'Review the trading markets: instruments offered, leverage limits, funding rates and liquidation rules', b: 'Check margin requirements, maintenance margin and the liquidation process for a position', risk: 'liquidation, funding-rate costs, oracle and market-volatility risk' },
+  'CDP': { a: 'Review the collateral types, minimum collateral ratios, stability fees and minting limits', b: 'Check the liquidation ratio and the process for repaying debt and unlocking collateral', risk: 'liquidation on collateral price falls, peg deviation, oracle and stability-fee risk' },
+  'Yield Aggregator': { a: 'Review the aggregated vaults: underlying strategies, auto-compounding mechanics and fee structure', b: 'Check deposit and withdrawal terms, lockups and how harvested yield is reinvested', risk: 'underlying strategy risk, compounding assumptions, fees and withdrawal constraints' },
+  'Basis Trading': { a: 'Review the basis strategy: spot versus futures positions, funding-rate exposure and hedging mechanics', b: 'Check how the strategy performs when funding rates turn negative and how positions are unwound', risk: 'funding-rate reversal, exchange counterparty and liquidation risk' },
+  'Chain': { a: 'Identify the chain native asset, gas token, consensus and the applications that hold its TVL', b: 'Check bridging routes, gas costs and finality for moving assets to and from this chain', risk: 'bridge risk, gas volatility, chain downtime and application-level risk' },
+  'Staking Pool': { a: 'Review the staking pool: staked asset, validator set, reward rate and unbonding period', b: 'Check pool fees, slashing conditions and how rewards are distributed', risk: 'slashing, validator failure, unbonding delays and reward variability' },
+  'Liquidity Manager': { a: 'Review the managed liquidity positions: price ranges, rebalancing rules and fee collection', b: 'Check how ranges are adjusted in volatile markets and what fees the manager charges', risk: 'impermanent loss, range mis-setting, rebalancing and smart-contract risk' },
+  'Restaking': { a: 'Review what is restaked, which services are secured, and the additional slashing conditions', b: 'Check withdrawal queues, unbonding periods and how restaking rewards are paid', risk: 'additional slashing, operator failure and withdrawal delays' },
+  'CeDeFi': { a: 'Identify the centralised counterparties: custodian, exchange venues and how funds are held', b: 'Check proof of reserves or attestations, withdrawal processes and counterparty disclosures', risk: 'custodian and exchange counterparty risk, withdrawal freezes and disclosure gaps' },
+  'Anchor BTC': { a: 'Check how the BTC-pegged asset is backed, where the underlying BTC is held, and mint and redeem mechanics', b: 'Verify the peg history, redemption process and any mint or redeem limits or fees', risk: 'peg deviation, custodian risk, redemption delays and bridge risk' },
+  'Decentralized BTC': { a: 'Check the decentralised BTC mechanism: collateral, minting process and peg maintenance', b: 'Review redemption rights, collateral ratios and what happens on a peg break', risk: 'peg deviation, collateral liquidation and oracle risk' },
+  'Leveraged Farming': { a: 'Review the leveraged position: leverage ratio, borrowed assets, and the farming venues used', b: 'Check liquidation thresholds, interest costs and how the position is closed', risk: 'liquidation, borrowing costs, farming yield shortfall and smart-contract risk' },
+  'Dual-Token Stablecoin': { a: 'Review the two-token design: which token is the stablecoin, which absorbs volatility, and mint and redeem rules', b: 'Check peg mechanisms, collateral backing and redemption terms for each token', risk: 'peg deviation, collateral shortfall and mechanism failure' },
+  'Insurance': { a: 'Review the coverage offered: covered risks, policy terms, premiums and claim conditions', b: 'Check the claims process, payout history and capital backing the cover', risk: 'claim denial, underwriting losses and capital adequacy risk' },
+  'Payments': { a: 'Review the payment flow: supported assets, settlement networks, fees and settlement times', b: 'Check sender and receiver requirements, limits and refund or dispute handling', risk: 'settlement failure, fee changes and counterparty risk' },
+  'Governance Incentives': { a: 'Review the governance system: voting power, proposal process and incentive distribution', b: 'Check eligibility for incentives, lockups and how rewards are claimed', risk: 'governance capture, incentive changes and lockup risk' },
+  'Stablecoin Wrapper': { a: 'Review the wrapped stablecoin: underlying reserve asset, mint and redeem process and peg', b: 'Check redemption limits, fees and reserve attestations', risk: 'peg deviation, reserve shortfall and redemption restrictions' },
+  'Collateral Markets': { a: 'Review the collateral markets: accepted collateral, loan terms and interest rates', b: 'Check collateral ratios, liquidation rules and withdrawal terms', risk: 'liquidation, collateral price falls and oracle risk' },
+  'Crypto Card Issuer': { a: 'Review the card product: supported assets, spending limits, fees and supported regions', b: 'Check card issuance requirements, top-up process and settlement asset', risk: 'issuer risk, regional restrictions, fees and settlement delays' },
+  'Farm': { a: 'Review the farming pools: reward tokens, emission schedules and pool requirements', b: 'Check staking and deposit terms, reward claim process and lockups', risk: 'reward token price falls, emission changes, lockups and smart-contract risk' },
+  'Uncollateralized Lending': { a: 'Review the credit model: borrower assessment, credit limits and repayment terms', b: 'Check default handling, recovery process and lender protections', risk: 'borrower default, credit assessment failure and limited recourse' },
+  'Prediction Market': { a: 'Review the markets offered, resolution rules and how outcomes are determined', b: 'Check trading fees, liquidity, settlement times and dispute resolution', risk: 'resolution disputes, low liquidity and outcome uncertainty' },
+  'Indexes': { a: 'Review the index composition: constituent assets, weights and rebalancing schedule', b: 'Check mint and redeem mechanics, fees and tracking against the stated index', risk: 'tracking error, constituent changes, rebalancing and smart-contract risk' },
+  'Interest Rate Derivatives': { a: 'Review the rate products: fixed versus floating rates, maturities and settlement', b: 'Check pricing, collateral requirements and how positions are closed or settled', risk: 'rate movements, counterparty, liquidity and settlement risk' },
+};
+export const FALLBACK_PLAN: CategoryPlan = { a: 'Read the protocol documentation to identify its core product actions and the assets and networks they use', b: 'List the protocol stated user actions in order and check which require a wallet connection, deposit or signature', risk: 'unknown product risk until documentation and contracts are verified' };
+export function categoryPlan(category: string | null): CategoryPlan {
+  return CATEGORY_PLANS[category ?? ''] ?? FALLBACK_PLAN;
+}
+function fmtTvl(tvl: number): string {
+  if (tvl >= 1e9) return `$${(tvl / 1e9).toFixed(2)}B`;
+  if (tvl >= 1e6) return `$${(tvl / 1e6).toFixed(1)}M`;
+  return `$${Math.round(tvl)}`;
+}
+
+/**
+ * Seven-step, category-specific, research-only playbook. Steps 1-2 verify
+ * identity and deployments from snapshot facts (name, category, chains,
+ * TVL, 7-day change, tracked age). Steps 3-4 are the category's own
+ * product actions. Step 5 checks campaign status (always UNVERIFIED here).
+ * Step 6 prices the category's risks with a live quote, never a number
+ * from this snapshot. Step 7 is the decision gate. No step invents a
+ * campaign, reward, deposit, contract, amount or gas budget.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chainText = p.chains.length ? p.chains.join(', ') : 'chain not specified in snapshot';
+  // Step 2 must stay inside the 600-character gate even for protocols on
+  // 39-45 chains (vfat.io, steer-protocol): name the first five chains and
+  // count the rest instead of listing every chain verbatim.
+  const chainShort = p.chains.length > 5 ? `${p.chains.slice(0, 5).join(', ')} and ${p.chains.length - 5} more chains` : chainText;
   const category = p.category ?? 'category not specified';
-  const ageText = age === null ? 'tracking age unavailable' : `${age} days in the source dataset`;
+  const plan = categoryPlan(p.category);
+  const ageText = age === null ? 'tracking age unavailable' : `${age} days tracked`;
+  const changeText = p.change_7d === null ? '7-day change not reported' : `${p.change_7d.toFixed(2)}% over 7 days`;
   return [
     {
-      text: `Identify the authentic project for ${p.name} (${category}). Snapshot evidence is limited to DefiLlama name, slug, TVL and chain metadata; it contains no official website URL. Resolve the domain from a trusted, independently verified primary source before opening links or connecting a wallet.`,
+      text: `Identify the authentic project for ${p.name} (${category}). Snapshot 2026-11-14 records ${fmtTvl(p.tvl_usd)} TVL, ${changeText}, ${ageText}; it contains no official website URL. Resolve the domain from a trusted, independently verified primary source before opening links or connecting a wallet.`,
       cost: 'No on-chain cost; source verification only',
       time: '5–10 minutes',
     },
     {
-      text: `Verify deployment details for ${p.name}. The snapshot lists ${chainText} but does not provide contract addresses, deployment versions, admin controls or audit status. Match every address against official documentation and the relevant chain explorer; do not infer contracts from token lists or search ads.`,
+      text: `Verify deployment details for ${p.name}. The snapshot lists ${chainShort} (${p.chains.length} chains in total) but does not provide contract addresses, deployment versions, admin controls or audit status. Match every address against official documentation and the relevant chain explorer; do not infer contracts from token lists or search ads.`,
       cost: 'Unknown until official contracts and actions are identified; do not transact',
       time: '10–20 minutes',
     },
     {
-      text: `Check whether ${p.name} has an active points, rewards, testnet or airdrop campaign. Search only the protocol's verified website, documentation and official announcement channels. No campaign field or campaign evidence is present in this frozen snapshot, so status remains UNVERIFIED—not confirmed active and not confirmed absent.`,
+      text: `Product action for ${p.name} (${category}): ${plan.a}. Do this only after steps 1-2 verify the official site and contracts, and record what the official interface actually offers.`,
+      cost: 'Review only; on-chain cost not estimable from this snapshot',
+      time: '10–20 minutes',
+    },
+    {
+      text: `Second product action for ${p.name}: ${plan.b}. Record the exact options, limits and terms shown by the official interface; do not assume a feature, market or pool exists.`,
+      cost: 'Review only; on-chain cost not estimable from this snapshot',
+      time: '10–20 minutes',
+    },
+    {
+      text: `Check whether ${p.name} has an active points, rewards, testnet or airdrop campaign. Search only the protocol verified website, documentation and official announcement channels. No campaign field or campaign evidence is present in this frozen snapshot, so status remains UNVERIFIED, not confirmed active and not confirmed absent.`,
       cost: 'No on-chain cost; evidence review only',
       time: '10–15 minutes',
     },
     {
-      text: `If an official campaign exists, extract its published start/end dates, eligible networks, required actions, wallet or region restrictions, anti-Sybil conditions, minimums, exclusions and reward formula. Confirm that the terms are still current and preserve the source URLs and capture time. Do not invent qualifying actions or holding periods.`,
-      cost: 'No on-chain cost; campaign terms must be verified first',
-      time: '10–20 minutes',
-    },
-    {
-      text: `Build a transaction-level cost and risk sheet only after the exact eligible actions are known. Obtain a current gas quote, approval and execution fees, bridge or swap spread, exit cost, minimum capital, lockup, withdrawal constraints, liquidity and smart-contract risks. TVL is not a deposit recommendation and cannot determine a safe capital amount.`,
+      text: `Build a transaction-level cost and risk sheet for ${p.name} only after the exact eligible actions are known. Obtain a current gas quote, approval and execution fees, bridge or swap spread, exit cost, minimum capital, lockup and withdrawal constraints. Main category risks: ${plan.risk}. TVL cannot determine a safe capital amount.`,
       cost: 'Not estimable from this snapshot; no capital or gas budget is provided',
       time: '10–20 minutes',
     },
     {
-      text: `Decision gate for ${p.name}: mark READY FOR USER REVIEW only when official campaign terms, contract addresses, costs, risks and eligibility are documented with dated primary-source evidence. Obtain the user's explicit approval before any wallet connection, signature or transaction. If evidence is missing or ambiguous, record NO ACTION and keep campaign status UNVERIFIED.`,
+      text: `Decision gate for ${p.name}: mark READY FOR USER REVIEW only when official campaign terms, contract addresses, costs, risks and eligibility are documented with dated primary-source evidence. Obtain the user explicit approval before any wallet connection, signature or transaction. If evidence is missing or ambiguous, record NO ACTION and keep campaign status UNVERIFIED.`,
       cost: 'No transaction without evidence and explicit user approval',
       time: '5 minutes to document decision',
     },

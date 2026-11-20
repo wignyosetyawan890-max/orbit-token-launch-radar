@@ -6,7 +6,7 @@
 
 ORBIT is an offline research entry for make.fun `token-radar-01`. It consumes the competition's frozen DefiLlama snapshot, builds a ranked pre-token research board, separates already-live token protocols, exposes the full snapshot explorer, and creates a dashboard plus a make.fun dossier.
 
-**Important scope:** the source snapshot contains protocol name, slug, category, chains, TVL, seven-day TVL change, market cap, tracked-since date, CoinGecko ID and symbol. It does not contain official project URLs, contract addresses, live campaign status, points terms, eligibility, minimum deposits, lockups, reward formulas, gas quotes or transaction costs. Therefore every campaign is labelled `UNVERIFIED`. The six per-protocol steps are a due-diligence checklist, not a deposit/bridge/staking strategy. No transaction, wallet connection or signature should be recommended from this snapshot alone.
+**Important scope:** the source snapshot contains protocol name, slug, category, chains, TVL, seven-day TVL change, market cap, tracked-since date, CoinGecko ID and symbol. It does not contain official project URLs, contract addresses, live campaign status, points terms, eligibility, minimum deposits, lockups, reward formulas, gas quotes or transaction costs. Therefore every campaign is labelled `UNVERIFIED`. The seven per-protocol steps are a category-specific research plan, not a deposit/bridge/staking strategy. No transaction, wallet connection or signature should be recommended from this snapshot alone.
 
 ## Model and validation
 
@@ -41,14 +41,17 @@ The full explorer contains every protocol in the frozen snapshot. The ranked boa
 
 ## Campaign verification workflow
 
-For each ranked row, ORBIT exposes six research gates:
+For each ranked row, ORBIT exposes seven steps. Steps 1-2 verify identity and deployments from snapshot facts (name, category, chains, TVL, 7-day change, tracked age). Steps 3-4 are the category's own product actions — for example, a Dex row checks swaps and liquidity provision, a Lending row checks supply/borrow markets and health factors, a Risk Curators row checks curator vaults and risk limits — drawn only from what the DefiLlama category means, never from an invented campaign, contract or amount. Step 5 checks campaign status (always `UNVERIFIED` here). Step 6 builds a cost/risk sheet from a live gas quote, with the category's main risks named. Step 7 is the decision gate:
 
 1. Verify the project identity and official domain from independent primary sources.
 2. Verify chain deployments, contract addresses, version and security evidence.
-3. Check official documentation and verified announcement channels for a live campaign.
-4. Record exact dates, eligible actions, wallet/region/anti-Sybil rules, minimums and reward formula.
-5. Calculate transaction-level gas, approval, bridge/swap, exit and capital-lockup costs using current evidence.
-6. Escalate to the user for explicit approval; absent complete primary-source evidence, record no action.
+3. Carry out the category's first product action on the verified official interface, and record what it actually offers.
+4. Carry out the category's second product action, and record exact options, limits and terms.
+5. Check official documentation and verified announcement channels for a live campaign; status stays `UNVERIFIED` without primary-source evidence.
+6. Calculate transaction-level gas, approval, bridge/swap, exit and capital-lockup costs using current evidence; no cost is estimable from the snapshot alone.
+7. Escalate to the user for explicit approval; absent complete primary-source evidence, record no action.
+
+A step that would need a chain list longer than the 600-character gate names the first five chains and counts the rest (this mattered for vfat.io with 39 chains and steer-protocol with 45). No per-protocol official documentation was verified for all 178 rows: the snapshot carries no official URLs, so each step requires the reader to verify the primary source before any action, and no campaign, reward, deposit minimum, contract address, gas figure or time estimate beyond review effort is asserted.
 
 Research priority (`review`, `watch`, `low`) is a screening heuristic derived from the valuation proxy and tracked age. It is not an airdrop likelihood score, campaign state, eligibility judgment, or recommendation to transact. Cost and capital fields intentionally remain `null` because the frozen snapshot cannot support those estimates.
 
