@@ -24,7 +24,7 @@ Reads the sealed snapshot, writes `board.json`, `data.js`, the dashboard, three 
 - `lib/model.ts` — the ORBIT model: comparable dedup, fitted valuation, board selection, farm plans, gate checks.
 - `vendor/makefun-board.ts` — make.fun's dossier library (vendored, byte for byte the kit's copy).
 - `dashboard/` — the page: `index.html`, `app.css`, `app.js` (no network, no framework).
-- `screenshots/` — the three screenshots: the board, a protocol detail view and a filtered view.
+- `screenshots/` — the three screenshots: the board, a protocol detail view and a filtered view. Each shot is kept as base64 text (`1-board.png.b64`) because the GitHub snapshot push accepts UTF-8 files only and cannot carry a binary PNG; `main.ts` decodes each `.b64` back to the exact PNG bytes at run time, so the output always holds real PNGs. A real PNG sitting next to its `.b64` is used as-is.
 
 ---
 
