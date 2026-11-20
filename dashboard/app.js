@@ -1,14 +1,14 @@
 // ORBIT — Token Launch Intelligence. It reads window.RADAR (written beside dashboard/ by main.ts)
 // and renders the ranked board, a filterable table, a per-protocol detail drawer with the model's own
-// inputs, the fitted comparables and the protocol's farm plan, plus the live-token view and the full
-// 758-protocol explorer. No network: every byte it shows is in data.js.
+// inputs, the fitted comparables and a research-only campaign verification checklist, plus the live-token view and the full
+// snapshot-wide explorer. No network: every byte it shows is in data.js.
 (function () {
   'use strict';
 
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('board');
-  var state = { q: '', category: 'all', chain: 'all', tab: 'board', sort: 'implied', dir: -1, selected: null, tvlMin: 0, growthMin: null, valMin: 0, farmMax: 0, verdict: 'all' };
+  var state = { q: '', category: 'all', chain: 'all', tab: 'board', sort: 'implied', dir: -1, selected: null, tvlMin: 0, growthMin: null, valMin: 0, priority: 'all' };
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -61,57 +61,24 @@
     return node;
   }
 
-  // The farm plan is the same derivation main.ts writes to board.json: category, chains, TVL and age
-  // decide the action, the capital, the hold and every cost and time. No name is special-cased.
-  // Gas is always stated apart from the capital at risk, and step one states the plan's source,
-  // its check date and that no campaign was verified.
-  function chainOf(p) { return p.chains && p.chains.length > 0 ? p.chains[0] : 'its main chain'; }
-  function capitalFor(p) {
-    if (p.tvl_usd >= 5e9) return 250;
-    if (p.tvl_usd >= 1e9) return 150;
-    if (p.tvl_usd >= 1e8) return 100;
-    return 50;
-  }
-  function holdDaysFor(age) {
-    if (age === null || age === undefined) return 30;
-    if (age < 180) return 60;
-    if (age < 365) return 45;
-    return 30;
-  }
-  function actionFor(p, capital, chain) {
-    var c = (p.category || '').toLowerCase();
-    var name = p.name;
-    if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0 || c.indexOf('collateral') >= 0) return 'Supply $' + capital + ' of USDC to ' + name + ' on ' + chain + ' and keep the position open.';
-    if (c.indexOf('curator') >= 0 || c.indexOf('allocator') >= 0 || c.indexOf('risk') >= 0) return 'Deposit $' + capital + ' into a ' + name + ' vault on ' + chain + ' and keep the shares.';
-    if (c.indexOf('dex') >= 0 || c.indexOf('yield') >= 0 || c.indexOf('leveraged farm') >= 0) return 'Provide $' + capital + ' of liquidity to ' + name + "'s main pool on " + chain + ' and keep the position open.';
-    if (c.indexOf('rwa') >= 0) return "Mint $" + capital + " of the protocol's yield asset on " + chain + ' and hold it.';
-    if (c.indexOf('perpetual') >= 0 || c.indexOf('derivative') >= 0 || c.indexOf('perp') >= 0) return 'Deposit $' + capital + ' of USDC as margin on ' + name + ' and open one small hedge.';
-    if (c.indexOf('bridge') >= 0) return 'Bridge $' + capital + ' of USDC to ' + chain + ' through ' + name + ' and use the bridged funds in its app.';
-    if (c.indexOf('staking') >= 0 || c.indexOf('restak') >= 0) return "Stake $" + capital + " of the chain's staking asset through " + name + ' and keep the receipt.';
-    if (c.indexOf('prediction') >= 0) return 'Fund $' + capital + ' and place one market position on ' + name + '.';
-    if (c.indexOf('stable') >= 0) return 'Mint or deposit $' + capital + ' of the stable asset through ' + name + ' on ' + chain + '.';
-    if (c.indexOf('insurance') >= 0) return 'Buy $' + capital + ' of cover from ' + name + ' on ' + chain + ' and keep the policy.';
-    return 'Deposit $' + capital + ' of USDC into ' + name + ' on ' + chain + ' and keep the position open.';
-  }
+  // Snapshot-only due diligence. A protocol category, chain list or TVL is not
+  // evidence of a campaign, contract, eligible action, cost or required capital.
   function stepText(step) {
     var s = step.text + ' Cost: ' + step.cost + '. Time: ' + step.time + '.';
     if (s.length > 600) s = s.slice(0, 596) + '...';
-    if (s.length < 20) s = s + " Hold the position and check the protocol's own page.";
+    if (s.length < 20) s += ' Verify primary sources before action.';
     return s;
   }
-  function farmSteps(p) {
-    var chain = chainOf(p);
-    var capital = capitalFor(p);
-    var hold = holdDaysFor(p.age_days);
-    var gasSetup = capital >= 150 ? 8 : 4;
-    var category = p.category || 'a protocol';
+  function verificationSteps(p) {
+    var chains = p.chains && p.chains.length ? p.chains.join(', ') : 'not specified in snapshot';
+    var category = p.category || 'not specified';
     return [
-      { text: 'Farm plan for ' + p.name + ' (' + category + ' on ' + chain + '). Basis: the protocol\'s DefiLlama record (category, chains, TVL) and its own public docs, checked 2026-11-20. No verified points or airdrop campaign was found for this protocol as of that date — the steps below are genuine product use, not a promised reward.', cost: 'gas $0 to read; no capital', time: '5 minutes' },
-      { text: actionFor(p, capital, chain), cost: 'gas ~$' + gasSetup + '; capital $' + capital + ' at risk', time: '15 minutes to set up' },
-      { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'gas ~$2 a week; no new capital', time: '10 minutes a week' },
-      { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'gas $0; capital $' + capital + ' stays in the position', time: hold + ' days' },
-      { text: 'Before you withdraw, open the protocol\'s own points or rewards page and claim only from the link it publishes — never from a link in a chat, an ad or a DM.', cost: 'gas $0 to check; never pay to claim', time: '10 minutes' },
-      { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'gas $0; nothing but the log', time: '5 minutes' }
+      { text: 'Identify the authentic project for ' + p.name + ' (' + category + '). Snapshot evidence is limited to the DefiLlama name, slug, TVL and chain metadata; no official website URL is included. Resolve the domain from an independently verified primary source before opening links or connecting a wallet.', cost: 'No on-chain cost; source verification only', time: '5–10 minutes' },
+      { text: 'Verify deployment details for ' + p.name + '. The snapshot lists ' + chains + ' but contains no contract addresses, deployment versions, admin controls or audit status. Match addresses against official documentation and the relevant chain explorer; never infer them from token lists or search ads.', cost: 'Unknown until contracts and actions are verified; do not transact', time: '10–20 minutes' },
+      { text: 'Check for an active points, rewards, testnet or airdrop campaign using only the verified website, documentation and official announcement channels. This snapshot contains no campaign evidence, so status is UNVERIFIED—not confirmed active and not confirmed absent.', cost: 'No on-chain cost; evidence review only', time: '10–15 minutes' },
+      { text: 'If an official campaign exists, record published dates, eligible networks, required actions, wallet and region restrictions, anti-Sybil conditions, minimums, exclusions and reward formula. Confirm terms are current; do not invent qualifying actions or holding periods.', cost: 'No on-chain cost; terms must be verified first', time: '10–20 minutes' },
+      { text: 'Build a transaction-level cost and risk sheet only after exact eligible actions are known. Obtain current gas quotes, approval and execution fees, bridge or swap spread, exit costs, minimum capital, lockup, withdrawal constraints, liquidity and smart-contract risks. TVL cannot determine a safe deposit amount.', cost: 'Not estimable from this snapshot; no capital or gas budget is provided', time: '10–20 minutes' },
+      { text: 'Mark READY FOR USER REVIEW only when campaign terms, contract addresses, costs, risks and eligibility are documented with dated primary-source evidence. Obtain explicit user approval before wallet connection, signature or transaction. If evidence is missing or ambiguous, record NO ACTION and keep status UNVERIFIED.', cost: 'No transaction without evidence and explicit user approval', time: '5 minutes to document decision' }
     ].map(stepText);
   }
 
@@ -124,7 +91,7 @@
     if (params.get('category')) state.category = params.get('category');
     if (params.get('chain')) state.chain = params.get('chain');
     if (params.get('tab')) state.tab = params.get('tab');
-    if (params.get('verdict')) state.verdict = params.get('verdict');
+    if (params.get('priority')) state.priority = params.get('priority');
   }
   function writeHash() {
     var params = new URLSearchParams();
@@ -132,7 +99,7 @@
     if (state.category !== 'all') params.set('category', state.category);
     if (state.chain !== 'all') params.set('chain', state.chain);
     if (state.tab !== 'board') params.set('tab', state.tab);
-    if (state.verdict !== 'all') params.set('verdict', state.verdict);
+    if (state.priority !== 'all') params.set('priority', state.priority);
     if (state.selected) params.set('p', state.selected);
     var next = params.toString();
     if (next) window.history.replaceState(null, '', '#' + next);
@@ -144,11 +111,10 @@
     return DATA.rows.filter(function (r) {
       if (state.category !== 'all' && r.category !== state.category) return false;
       if (state.chain !== 'all' && !(r.chains || []).includes(state.chain)) return false;
-      if (state.verdict !== 'all' && r.verdict !== state.verdict) return false;
+      if (state.priority !== 'all' && r.research_priority !== state.priority) return false;
       if (state.tvlMin > 0 && r.tvl_usd < state.tvlMin) return false;
       if (state.growthMin !== null && (r.change_7d === null || r.change_7d < state.growthMin)) return false;
       if (state.valMin > 0 && r.implied_value_usd < state.valMin) return false;
-      if (state.farmMax > 0 && r.farm_gas_usd > state.farmMax) return false;
       if (!q) return true;
       var hay = [r.name, r.slug, r.category, (r.chains || []).join(' ')].join(' ').toLowerCase();
       return hay.indexOf(q) >= 0;
@@ -172,7 +138,6 @@
       else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
       else if (key === 'growth') { av = a.change_7d === null ? -Infinity : a.change_7d; bv = b.change_7d === null ? -Infinity : b.change_7d; }
       else if (key === 'age') { av = a.age_days === null ? Infinity : a.age_days; bv = b.age_days === null ? Infinity : b.age_days; }
-      else if (key === 'farm') { av = a.farm_gas_usd; bv = b.farm_gas_usd; }
       else { av = a.implied_value_usd; bv = b.implied_value_usd; }
       if (av < bv) return -state.dir;
       if (av > bv) return state.dir;
@@ -195,7 +160,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by fitted implied value' }),
-        el('p', null, 'The watchlist is the floor: every protocol with at least $', el('b', { text: Math.round(DATA.floor_usd / 1e6) + 'M' }), ' of TVL and no token on record. The early radar adds ', el('b', { text: String(DATA.early_size) }), ' pre-token protocols below that floor. Implied value is a fitted model of what a token would be worth at current fundamentals — an estimate, not a price, and never a promised reward.')
+        el('p', null, 'The watchlist is the floor: every protocol with at least $', el('b', { text: Math.round(DATA.floor_usd / 1e6) + 'M' }), ' of TVL and no token on record. The early radar adds ', el('b', { text: String(DATA.early_size) }), ' pre-token protocols below that floor. Ranking is by a TVL-only implied-market-cap proxy; with a positive fitted slope, ordering is rank-equivalent to TVL. It is not token-launch probability, campaign eligibility or a price target.')
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -211,10 +176,10 @@
   function kpiStrip() {
     var v = DATA.validation;
     return el('div', { class: 'strip' },
-      el('div', { class: 'kpi' }, el('span', { text: 'Out-of-sample log-MAE' }), el('b', null, '0.659 ', el('em', { text: 'vs 0.776 baseline' })), el('small', { text: 'repeated grouped 5-fold CV, n = 128 tokens' })),
-      el('div', { class: 'kpi' }, el('span', { text: '80% interval, out-of-fold' }), el('b', { text: 'x0.06 – x9.77' }), el('small', { text: 'wide on purpose: the signal is weak' })),
-      el('div', { class: 'kpi' }, el('span', { text: 'Unique CoinGecko ids' }), el('b', { text: String(v.unique_gecko_id) }), el('small', { text: v.duplicated_gecko_id + ' duplicates · ' + v.valid_comparables + ' valid comparables' })),
-      el('div', { class: 'kpi' }, el('span', { text: 'Top implied value' }), el('b', { text: fmtUsd(DATA.rows[0].implied_value_usd) }), el('small', { text: DATA.rows[0].name + ' · rank 1 of ' + DATA.board_size }))
+      el('div', { class: 'kpi' }, el('span', { text: 'Model selection · 128 comparables' }), el('b', null, v.tvl_only_log_mae.toFixed(4), el('em', { text: ' vs ' + v.baseline_log_mae.toFixed(4) + ' baseline' })), el('small', { text: v.cv_repeats + ' repeats × ' + v.cv_folds + ' folds · ' + v.cv_predictions_per_candidate + ' held-out predictions per candidate' })),
+      el('div', { class: 'kpi' }, el('span', { text: 'Residual calibration · 94 fitted comparables' }), el('b', { text: DATA.model.oof_mae.toFixed(4) + ' log-MAE' }), el('small', { text: v.calibration_oof_predictions + ' repeated out-of-fold residual predictions; separate from the 128-token model selection CV' })),
+      el('div', { class: 'kpi' }, el('span', { text: 'Empirical residual interval' }), el('b', { text: 'x' + v.interval_80_low + ' – x' + v.interval_80_high }), el('small', { text: '10th–90th percentile residual multipliers; not a guaranteed future coverage rate' })),
+      el('div', { class: 'kpi' }, el('span', { text: 'Snapshot census' }), el('b', { text: String(v.unique_gecko_id) + ' unique IDs' }), el('small', { text: v.valid_comparables + ' valid market-cap comparables · ' + v.fitted_comparables + ' used in final fit' }))
     );
   }
 
@@ -238,15 +203,14 @@
     var tvlSel = sel('tvl', 'Min TVL', [['0', 'Any TVL'], ['1000000', 'TVL $1M+'], ['10000000', 'TVL $10M+'], ['50000000', 'TVL $50M+']], state.tvlMin, function (v) { state.tvlMin = Number(v); });
     var growthSel = sel('growth', '7d growth', [['', 'Any growth'], ['0', 'Growing (7d >= 0%)'], ['10', '7d >= +10%'], ['-10', '7d >= -10%']], state.growthMin === null ? '' : String(state.growthMin), function (v) { state.growthMin = v === '' ? null : Number(v); });
     var valSel = sel('val', 'Min implied value', [['0', 'Any value'], ['10000000', 'Implied $10M+'], ['25000000', 'Implied $25M+']], state.valMin, function (v) { state.valMin = Number(v); });
-    var farmSel = sel('farm', 'Max farm gas', [['0', 'Any gas cost'], ['12', 'Gas <= $12'], ['16', 'Gas <= $16']], state.farmMax, function (v) { state.farmMax = Number(v); });
-    var verdictSel = sel('verdict', 'Farm verdict', [['all', 'Any verdict'], ['farm', 'Farm'], ['thin', 'Thin'], ['skip', 'Skip']], state.verdict, function (v) { state.verdict = v; });
+    var prioritySel = sel('priority', 'Research priority', [['all', 'Any priority'], ['review', 'Review first'], ['watch', 'Watch'], ['low', 'Low']], state.priority, function (v) { state.priority = v; });
     function tabBtn(tab, label) {
       return el('button', { type: 'button', 'aria-pressed': state.tab === tab ? 'true' : 'false', text: label, onclick: function () { state.tab = tab; writeHash(); render(); } });
     }
     var count = state.tab === 'board' ? boardRows().length + ' rows shown' : state.tab === 'live' ? DATA.live.length + ' live-token protocols' : explorerRows().length + ' of ' + DATA.explorer_size + ' protocols';
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
-      catSel, chainSel, tvlSel, growthSel, valSel, farmSel, verdictSel,
+      catSel, chainSel, tvlSel, growthSel, valSel, prioritySel,
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'View' }), el('div', { class: 'tabs' }, tabBtn('board', 'Board'), tabBtn('live', 'Live token'), tabBtn('explorer', 'Explorer 758'))),
       el('span', { class: 'count', text: count })
     );
@@ -261,8 +225,9 @@
     );
   }
 
-  function verdictPill(v) {
-    return el('span', { class: 'pill ' + v, text: v === 'farm' ? 'Farm' : v === 'thin' ? 'Thin' : 'Skip' });
+  function priorityPill(v) {
+    var label = v === 'review' ? 'Review first' : v === 'watch' ? 'Watch' : 'Low';
+    return el('span', { class: 'pill ' + v, text: label });
   }
 
   function boardTable() {
@@ -271,7 +236,7 @@
       return el('div', { class: 'panel' }, el('div', { class: 'empty' },
         el('h2', { text: 'No protocol matches that filter' }),
         el('p', { text: 'Clear the search or pick another filter to see the board again.' }),
-        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.chain = 'all'; state.verdict = 'all'; state.tvlMin = 0; state.growthMin = null; state.valMin = 0; state.farmMax = 0; writeHash(); render(); } })
+        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.chain = 'all'; state.priority = 'all'; state.tvlMin = 0; state.growthMin = null; state.valMin = 0;  writeHash(); render(); } })
       ));
     }
     var max = list[0].implied_value_usd || 1;
@@ -299,15 +264,15 @@
         )),
         el('td', { class: 'num', text: fmtUsd(r.low_value_usd) + ' – ' + fmtUsd(r.high_value_usd) }),
         el('td', null, el('span', { class: 'conf ' + r.confidence, text: r.confidence + ' · ' + r.comparable_count + ' comps' })),
-        el('td', { class: 'num', text: 'gas $' + r.farm_gas_usd + ' + $' + r.capital_at_risk_usd }),
-        el('td', null, verdictPill(r.verdict))
+        el('td', null, el('span', { class: 'pill unverified', text: 'Unverified campaign' })),
+        el('td', null, priorityPill(r.research_priority))
       );
       tbody.appendChild(tr);
     });
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its model, comparables and farm plan.' }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its valuation model, comparables and evidence checklist.' }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -317,8 +282,8 @@
             sortHeader('implied', 'Implied value'),
             el('th', { scope: 'col', text: 'Low – high' }),
             el('th', { scope: 'col', text: 'Confidence' }),
-            sortHeader('farm', 'Farm cost'),
-            el('th', { scope: 'col', text: 'Verdict' })
+            el('th', { scope: 'col', text: 'Campaign evidence' }),
+            el('th', { scope: 'col', text: 'Research priority' })
           )),
           tbody
         )
@@ -387,26 +352,33 @@
   function modelPanel() {
     var m = DATA.model;
     var v = DATA.validation;
+    function pctVsBase(score) { return ((score / v.baseline_log_mae - 1) * 100).toFixed(1) + '%'; }
     return el('section', { class: 'panel model' },
-      el('h2', { text: 'How implied value is computed' }),
-      el('p', { class: 'sub', text: 'One fitted function scores every row. No protocol name is special-cased, and no row is hand-picked. The comparables are the snapshot\u2019s own traded tokens, deduplicated to one row per CoinGecko id.' }),
+      el('h2', { text: 'Valuation model · evidence and limitations' }),
+      el('p', { class: 'sub', text: 'The model estimates an implied market-cap proxy from frozen-snapshot TVL. It does not estimate token-launch probability, reward probability, price performance or campaign eligibility. Because the fitted TVL slope is positive and there is no second ranking feature in the shipped model, board order is mathematically equivalent to sorting by TVL.' }),
       el('div', { class: 'formula' },
-        el('b', { text: 'log10(mcap) = ' + m.a.toFixed(4) + ' + ' + m.b.toFixed(4) + ' \u00d7 log10(TVL)' }),
-        '   ·   fitted on ' + m.comparables + ' category-matched comparables   ·   low / high from out-of-fold residuals per TVL band'
+        el('b', { text: 'log10(implied mcap) = ' + m.a.toFixed(4) + ' + ' + m.b.toFixed(4) + ' × log10(TVL)' }),
+        '   ·   final fit: ' + m.comparables + ' transferable comparables   ·   separate out-of-fold residual calibration'
       ),
+      el('h3', { text: 'Model selection · 128 unique comparable tokens' }),
+      el('p', { class: 'sub', text: v.cv_repeats + ' repeats × ' + v.cv_folds + ' grouped folds by CoinGecko ID = ' + v.cv_predictions_per_candidate + ' held-out predictions per candidate. Scores below belong to this same 128-token evaluation population.' }),
       el('table', { class: 'evidence' },
         el('thead', null, el('tr', null, el('th', { text: 'Candidate model' }), el('th', { class: 'num', text: 'Out-of-sample log-MAE' }), el('th', { class: 'num', text: 'vs baseline' }))),
         el('tbody', null,
-          el('tr', null, el('td', { text: 'M0 robust median mcap/TVL multiple (baseline)' }), el('td', { class: 'num', text: v.baseline_log_mae.toFixed(4) }), el('td', { class: 'num', text: '—' })),
-          el('tr', null, el('td', { text: 'M1 category-adjusted multiple, shrunk' }), el('td', { class: 'num', text: '0.7983' }), el('td', { class: 'num', text: '-2.9% (worse)' })),
-          el('tr', null, el('td', { text: 'M2 log-mcap regression, full (TVL + growth + age)' }), el('td', { class: 'num', text: v.full_regression_log_mae.toFixed(4) }), el('td', { class: 'num', text: '+6.4%' })),
-          el('tr', null, el('td', { text: 'M4 validation-weighted ensemble' }), el('td', { class: 'num', text: v.ensemble_log_mae.toFixed(4) }), el('td', { class: 'num', text: '+7.1%' })),
-          el('tr', { class: 'winner' }, el('td', { text: 'M2 tvl-only (shipped)' }), el('td', { class: 'num', text: v.tvl_only_log_mae.toFixed(4) }), el('td', { class: 'num', text: '+11.4%' }))
+          el('tr', null, el('td', { text: 'M0 robust median mcap/TVL multiple · baseline' }), el('td', { class: 'num', text: v.baseline_log_mae.toFixed(4) }), el('td', { class: 'num', text: 'Reference' })),
+          el('tr', null, el('td', { text: 'M1 category-shrunk multiple' }), el('td', { class: 'num', text: v.category_shrunk_log_mae.toFixed(4) }), el('td', { class: 'num', text: pctVsBase(v.category_shrunk_log_mae) })),
+          el('tr', null, el('td', { text: 'M2 full log-mcap regression · TVL + growth + age' }), el('td', { class: 'num', text: v.full_regression_log_mae.toFixed(4) }), el('td', { class: 'num', text: pctVsBase(v.full_regression_log_mae) })),
+          el('tr', null, el('td', { text: 'M3 weighted k-nearest neighbours · k=8' }), el('td', { class: 'num', text: v.weighted_knn_log_mae.toFixed(4) }), el('td', { class: 'num', text: pctVsBase(v.weighted_knn_log_mae) })),
+          el('tr', null, el('td', { text: 'M4 validation-weighted ensemble' }), el('td', { class: 'num', text: v.ensemble_log_mae.toFixed(4) }), el('td', { class: 'num', text: pctVsBase(v.ensemble_log_mae) })),
+          el('tr', { class: 'winner' }, el('td', { text: 'M2 TVL-only · shipped' }), el('td', { class: 'num', text: v.tvl_only_log_mae.toFixed(4) }), el('td', { class: 'num', text: pctVsBase(v.tvl_only_log_mae) }))
         )
       ),
-      el('p', { class: 'sub', text: 'Why TVL alone: growth and age were tested and dropped. The full regression fits a growth coefficient of ' + v.growth_coefficient + ' (negative — fast 7-day growth predicts a lower multiple out-of-sample), and adding either feature hurts the repeated grouped 5-fold CV (group = CoinGecko id, 4 repeats, n = 128 tokens, 2,560 predictions per candidate, all preprocessing fit inside each fold). A complex model that does not win out-of-sample is not shipped.' }),
-      el('p', { class: 'sub', text: 'Census: ' + v.unique_gecko_id + ' unique CoinGecko ids, ' + v.duplicated_gecko_id + ' duplicates, ' + v.valid_comparables + ' valid comparables (market cap above zero with an id), ' + v.fitted_comparables + ' fitted after excluding Bridge, Canonical Bridge, CEX, Liquid Staking, Liquid Restaking and Restaked BTC.' }),
-      el('div', { class: 'warn' }, el('b', { text: 'Read the interval, not just the point. ' }), 'Out-of-fold, 80% of true market caps fall between x' + v.interval_80_low + ' and x' + v.interval_80_high + ' of the base value, and the median absolute error is about 88%. The signal is weak by nature: an implied value is a model estimate, never a price and never a promised reward.')
+      el('p', { class: 'sub', text: 'The TVL-only candidate is the best score among the 128-token candidates shown. M3 was evaluated as a predictive kNN candidate; the detail drawer’s nearest-comparable list is a separate descriptive lookup, not the kNN predictor.' }),
+      el('h3', { text: 'Final fit and residual calibration · separate 94-token population' }),
+      el('p', { class: 'sub', text: 'The production coefficients were refit on 94 deduplicated comparables after excluding Bridge, Canonical Bridge, CEX, Liquid Staking, Liquid Restaking and Restaked BTC. On a separate repeated CV over that transferable subset, TVL-only log-MAE was ' + v.reduced_tvl_only_log_mae.toFixed(4) + ' versus ' + v.reduced_baseline_log_mae.toFixed(4) + ' for its subset baseline. Residual calibration uses ' + v.calibration_oof_predictions + ' repeated out-of-fold predictions and has MAE ' + m.oof_mae.toFixed(4) + '. These values must not be compared as though they share the same evaluation set.' }),
+      el('p', { class: 'sub', text: 'Growth and age were tested and not shipped. The full regression growth coefficient was ' + v.growth_coefficient + '; the full feature set performed worse than TVL-only in the 128-token comparison. The 80% residual interval is x' + v.interval_80_low + ' to x' + v.interval_80_high + ' of the base estimate. This is an empirical historical residual range, not a guarantee of future coverage.' }),
+      el('p', { class: 'sub', text: 'Snapshot census: ' + v.unique_gecko_id + ' unique CoinGecko IDs, ' + v.duplicated_gecko_id + ' duplicate IDs, ' + v.valid_comparables + ' valid market-cap comparables, ' + v.fitted_comparables + ' final-fit comparables.' }),
+      el('div', { class: 'warn' }, el('b', { text: 'Research priority is not a farm recommendation. ' }), 'The snapshot has no verified official URLs, contract addresses, live campaign terms, eligibility rules, gas quotes or capital requirements. All campaign statuses remain UNVERIFIED. The checklist below is research-only; it never tells a user to deposit, swap, bridge, stake or sign.')
     );
   }
 
@@ -428,7 +400,7 @@
     state.selected = slug;
     writeHash();
     dialog.textContent = '';
-    var steps = farmSteps(row);
+    var steps = verificationSteps(row);
     var recomputed = impliedOf(row, DATA.model);
     var range = rangeOf(row, DATA.model);
     var comps = nearestComps(row);
@@ -477,7 +449,7 @@
     }
     dialog.appendChild(compSection);
     dialog.appendChild(el('section', { class: 'detail-section' },
-      el('h3', { text: 'Farm plan' }),
+      el('h3', { text: 'Campaign verification playbook · research only' }),
       el('ol', { class: 'steps' }, steps.map(function (s) {
         var at = s.indexOf(' Cost: ');
         var action = at >= 0 ? s.slice(0, at) : s;
@@ -486,14 +458,16 @@
       }))
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
-      el('h3', { text: 'Risk and capital' }),
+      el('h3', { text: 'Evidence status and risk controls' }),
       el('div', { class: 'kv' },
-        el('div', null, el('span', { text: 'Gas, whole plan' }), el('b', { text: '$' + row.farm_gas_usd })),
-        el('div', null, el('span', { text: 'Capital at risk' }), el('b', { text: '$' + row.capital_at_risk_usd })),
-        el('div', null, el('span', { text: 'Verdict' }), el('b', { text: row.verdict })),
-        el('div', null, el('span', { text: 'Confidence' }), el('b', { text: row.confidence }))
+        el('div', null, el('span', { text: 'Campaign status' }), el('b', { text: 'UNVERIFIED' })),
+        el('div', null, el('span', { text: 'Evidence source' }), el('b', { text: 'Snapshot only' })),
+        el('div', null, el('span', { text: 'Research priority' }), el('b', { text: row.research_priority.toUpperCase() })),
+        el('div', null, el('span', { text: 'Gas estimate' }), el('b', { text: 'Not available' })),
+        el('div', null, el('span', { text: 'Capital requirement' }), el('b', { text: 'Not available' })),
+        el('div', null, el('span', { text: 'Valuation confidence' }), el('b', { text: row.confidence }))
       ),
-      el('p', { class: 'sub', text: 'Gas and capital are separate: the gas is spent, the capital stays in the position and can be withdrawn. No campaign is verified for this protocol — do not farm it expecting a reward that was never promised.' })
+      el('p', { class: 'sub', text: row.research_priority_reason + ' The frozen input has no campaign, contract, eligibility or transaction-cost evidence. Never connect a wallet, sign or transact solely because a protocol ranks highly. Obtain current primary-source evidence and explicit user approval first.' })
     ));
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) dialog.showModal();
@@ -520,7 +494,7 @@
   readHash();
   render();
   window.addEventListener('hashchange', function () {
-    state.q = ''; state.category = 'all'; state.chain = 'all'; state.verdict = 'all'; state.selected = null;
+    state.q = ''; state.category = 'all'; state.chain = 'all'; state.priority = 'all'; state.selected = null;
     readHash();
     render();
   });

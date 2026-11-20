@@ -1,24 +1,18 @@
 // ORBIT — Institutional Token Launch Intelligence Radar (token-radar-01).
 //
-// The valuation is a fitted comparable model, not a house multiple. It was
-// chosen by repeated grouped cross-validation on the snapshot's own traded
-// tokens (group = CoinGecko id, 5-fold x 4 repeats, n = 128 unique tokens,
-// 2,560 predictions per candidate, all preprocessing fit inside each fold):
+// The valuation is a fitted comparable model, not a house multiple.
 //
-//   M0 robust median mcap/TVL multiple (baseline)   log10 MAE 0.7756
-//   M2 log-mcap regression, full (TVL+growth+age)   log10 MAE 0.7259
-//   M2 tvl-only  log10(mcap) = a + b*log10(TVL)      log10 MAE 0.6877  <- winner
-//   M4 validation-weighted ensemble                 log10 MAE 0.7209
-//
-// Growth and age HURT out-of-sample (the full regression's fitted growth
-// coefficient is -1.71), so the shipped model uses TVL alone. The 94 fitted
-// comparables are the deduplicated traded tokens whose category the board
-// can rank (Bridge, Canonical Bridge, CEX, Liquid Staking, Liquid
-// Restaking and Restaked BTC are excluded: their token economics do not
-// transfer to the board's categories). Uncertainty comes from the
-// out-of-fold residuals per TVL band, so low/base/high are measured, and
-// the 80% interval (x0.06 to x9.77) is shown honestly: the signal is weak
-// and the dashboard never pretends precision.
+// Candidate selection uses repeated grouped cross-validation on the frozen
+// snapshot (group = CoinGecko id, 5 folds x 4 repeats, 128 unique tokens).
+// Each candidate therefore has 512 held-out token predictions, not 2,560.
+// The shipped fit is TVL-only because its 128-token CV score (0.6877) beats
+// the baseline (0.7756), full regression (0.7259), weighted kNN (0.7662),
+// and validation-weighted ensemble (0.7209). A separate 94-token transferable
+// category subset is used for the final coefficient fit and residual bands.
+// Its 376 repeated out-of-fold residuals yield calibration MAE 0.6592.
+// These evaluation populations are distinct and must never be conflated.
+// The output is a valuation proxy, not token-launch probability, reward
+// probability, an investment recommendation, or a prediction of market timing.
 //
 // Census of the snapshot (computed live in buildRadar, not assumed):
 // 758 protocols, 158 unique gecko_id, 0 duplicates, 128 valid comparables
@@ -82,10 +76,21 @@ export const MODEL_VERSION = 'orbit-1';
 
 /** The validation record behind the model choice (measured by the offline CV). */
 export const VALIDATION = {
-  baseline_log_mae: 0.7756,
-  full_regression_log_mae: 0.7259,
+  // 128 unique market-cap comparables, 4 repeats x 5 grouped folds.
+  cv_unique_tokens: 128,
+  cv_repeats: 4,
+  cv_folds: 5,
+  cv_predictions_per_candidate: 512,
+  baseline_log_mae: 0.7755836508717513,
+  category_shrunk_log_mae: 0.7982913883024995,
+  full_regression_log_mae: 0.7258869347651508,
+  weighted_knn_log_mae: 0.7662164277193769,
   tvl_only_log_mae: 0.6877,
-  ensemble_log_mae: 0.7209,
+  ensemble_log_mae: 0.7208933499042828,
+  // Separate CV on the final 94-token transferable subset.
+  reduced_baseline_log_mae: 0.7571,
+  reduced_tvl_only_log_mae: 0.6634,
+  calibration_oof_predictions: 376,
   growth_coefficient: -1.71,
   interval_80_low: 0.06,
   interval_80_high: 9.77,
@@ -98,10 +103,7 @@ export const EXCLUDED_CATS = new Set(['Bridge', 'Canonical Bridge', 'CEX', 'Liqu
 const VERSIONED = /\s(V\d+(\.\d+)?|v\d+(\.\d+)?|\d+\.\d+)$/;
 const EXCH = ['Binance', 'Coinbase', 'Bybit', 'Kraken', 'Bitget', 'OKX', 'Bitfinex', 'Gemini'];
 
-/** The date the farm plans were checked (every plan states it). */
-export const FARM_CHECKED = '2026-11-20';
-
-/** A farm step: the action, what it costs (gas split from capital at risk), and how long it takes. */
+/** A due-diligence step. Snapshot data alone cannot establish live campaign status or costs. */
 export interface FarmStep {
   text: string;
   cost: string;
@@ -128,9 +130,12 @@ export interface BoardRow {
   high_value_usd: number;
   confidence: 'high' | 'medium' | 'low';
   comparable_count: number;
-  verdict: 'farm' | 'thin' | 'skip';
-  farm_gas_usd: number;
-  capital_at_risk_usd: number;
+  research_priority: 'review' | 'watch' | 'low';
+  research_priority_reason: string;
+  campaign_status: 'unverified';
+  evidence_status: 'snapshot-only';
+  farm_gas_usd: null;
+  capital_at_risk_usd: null;
   model: {
     a: number;
     b: number;
@@ -160,9 +165,12 @@ export interface RadarRow {
   high_value_usd: number;
   confidence: 'high' | 'medium' | 'low';
   comparable_count: number;
-  verdict: 'farm' | 'thin' | 'skip';
-  farm_gas_usd: number;
-  capital_at_risk_usd: number;
+  research_priority: 'review' | 'watch' | 'low';
+  research_priority_reason: string;
+  campaign_status: 'unverified';
+  evidence_status: 'snapshot-only';
+  farm_gas_usd: null;
+  capital_at_risk_usd: null;
   band: string;
 }
 
@@ -217,10 +225,19 @@ export interface RadarData {
     duplicated_gecko_id: number;
     valid_comparables: number;
     fitted_comparables: number;
+    cv_unique_tokens: number;
+    cv_repeats: number;
+    cv_folds: number;
+    cv_predictions_per_candidate: number;
     baseline_log_mae: number;
+    category_shrunk_log_mae: number;
     full_regression_log_mae: number;
+    weighted_knn_log_mae: number;
     tvl_only_log_mae: number;
     ensemble_log_mae: number;
+    reduced_baseline_log_mae: number;
+    reduced_tvl_only_log_mae: number;
+    calibration_oof_predictions: number;
     growth_coefficient: number;
     interval_80_low: number;
     interval_80_high: number;
@@ -360,106 +377,66 @@ export function confidenceFor(band: string, sameCategory: number): 'high' | 'med
 }
 
 /**
- * The farm verdict: whether this protocol's farm plan is worth doing.
- * It is about the setup (a large implied value and a long track record),
- * never a promised reward: no campaign is verified for any row.
+ * Research priority only. This is a triage heuristic derived from the
+ * valuation proxy and tracked age; it is not campaign eligibility or
+ * evidence that a token launch/reward exists.
  */
-export function verdictFor(implied: number, age: number | null): 'farm' | 'thin' | 'skip' {
-  if (implied >= 25_000_000 && age !== null && age >= 180) return 'farm';
-  if (implied >= 10_000_000) return 'thin';
-  return 'skip';
+export function researchPriorityFor(implied: number, age: number | null): 'review' | 'watch' | 'low' {
+  if (implied >= 25_000_000 && age !== null && age >= 180) return 'review';
+  if (implied >= 10_000_000) return 'watch';
+  return 'low';
 }
 
-/** The first chain a protocol names, or a neutral phrase. */
-function chainOf(p: SnapshotProtocol): string {
-  return p.chains.length > 0 ? p.chains[0]! : 'its main chain';
-}
-
-/** How much capital one farm position needs, from the protocol's own TVL. */
-export function capitalFor(p: SnapshotProtocol): number {
-  if (p.tvl_usd >= 5_000_000_000) return 250;
-  if (p.tvl_usd >= 1_000_000_000) return 150;
-  if (p.tvl_usd >= 100_000_000) return 100;
-  return 50;
-}
-
-/** How long to hold, from the protocol's age: younger protocols get a longer qualifying window. */
-function holdDaysFor(age: number | null): number {
-  if (age === null) return 30;
-  if (age < 180) return 60;
-  if (age < 365) return 45;
-  return 30;
-}
-
-/** The category's one action, in the words a farmer can follow. */
-function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
-  const c = (p.category ?? '').toLowerCase();
-  const name = p.name;
-  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`;
-  if (c.includes('curator') || c.includes('allocator') || c.includes('risk')) return `Deposit $${capital} into a ${name} vault on ${chain} and keep the shares.`;
-  if (c.includes('dex') || c.includes('yield') || c.includes('leveraged farm')) return `Provide $${capital} of liquidity to ${name}'s main pool on ${chain} and keep the position open.`;
-  if (c.includes('rwa')) return `Mint $${capital} of the protocol's yield asset on ${chain} and hold it.`;
-  if (c.includes('perpetual') || c.includes('derivative') || c.includes('perp')) return `Deposit $${capital} of USDC as margin on ${name} and open one small hedge.`;
-  if (c.includes('bridge')) return `Bridge $${capital} of USDC to ${chain} through ${name} and use the bridged funds in its app.`;
-  if (c.includes('staking') || c.includes('restak')) return `Stake $${capital} of the chain's staking asset through ${name} and keep the receipt.`;
-  if (c.includes('prediction')) return `Fund $${capital} and place one market position on ${name}.`;
-  if (c.includes('stable')) return `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`;
-  if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`;
-  return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
-}
-
-/** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
+/** A step as one string, kept within the make.fun gate's 20..600 character range. */
 export function stepText(step: FarmStep): string {
   let s = `${step.text} Cost: ${step.cost}. Time: ${step.time}.`;
   if (s.length > 600) s = `${s.slice(0, 596)}...`;
-  if (s.length < 20) s = `${s} Hold the position and check the protocol's own page.`;
+  if (s.length < 20) s = `${s} Review official sources before any action.`;
   return s;
 }
 
 /**
- * A protocol's farm plan: six steps, each an action with its gas cost split
- * from the capital at risk, and a time. The plan is derived from the
- * protocol's own record (category, chains, TVL, age), never from a
- * hand-written list of names. Step one states the plan's source, the date
- * it was checked and its verification status: no points or airdrop campaign
- * is claimed for any protocol, because none was verified.
+ * Six-step research-only playbook. The frozen snapshot has no official
+ * project URLs, contract addresses, campaign flags, eligibility rules,
+ * minimum deposits, lockups, gas quotes or reward terms. It is therefore
+ * unsafe and factually unsupported to prescribe deposits, swaps, holding
+ * periods, capital amounts or gas budgets. Every row stays unverified
+ * until primary-source evidence is collected outside this snapshot.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
-  const chain = chainOf(p);
-  const capital = capitalFor(p);
-  const hold = holdDaysFor(age);
-  const gasSetup = capital >= 150 ? 8 : 4;
-  const category = p.category ?? 'a protocol';
+  const chainText = p.chains.length ? p.chains.join(', ') : 'chain not specified in snapshot';
+  const category = p.category ?? 'category not specified';
+  const ageText = age === null ? 'tracking age unavailable' : `${age} days in the source dataset`;
   return [
     {
-      text: `Farm plan for ${p.name} (${category} on ${chain}). Basis: the protocol's DefiLlama record (category, chains, TVL) and its own public docs, checked ${FARM_CHECKED}. No verified points or airdrop campaign was found for this protocol as of that date — the steps below are genuine product use, not a promised reward.`,
-      cost: 'gas $0 to read; no capital',
-      time: '5 minutes',
+      text: `Identify the authentic project for ${p.name} (${category}). Snapshot evidence is limited to DefiLlama name, slug, TVL and chain metadata; it contains no official website URL. Resolve the domain from a trusted, independently verified primary source before opening links or connecting a wallet.`,
+      cost: 'No on-chain cost; source verification only',
+      time: '5–10 minutes',
     },
     {
-      text: actionFor(p, capital, chain),
-      cost: `gas ~$${gasSetup}; capital $${capital} at risk`,
-      time: '15 minutes to set up',
+      text: `Verify deployment details for ${p.name}. The snapshot lists ${chainText} but does not provide contract addresses, deployment versions, admin controls or audit status. Match every address against official documentation and the relevant chain explorer; do not infer contracts from token lists or search ads.`,
+      cost: 'Unknown until official contracts and actions are identified; do not transact',
+      time: '10–20 minutes',
     },
     {
-      text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.`,
-      cost: 'gas ~$2 a week; no new capital',
-      time: '10 minutes a week',
+      text: `Check whether ${p.name} has an active points, rewards, testnet or airdrop campaign. Search only the protocol's verified website, documentation and official announcement channels. No campaign field or campaign evidence is present in this frozen snapshot, so status remains UNVERIFIED—not confirmed active and not confirmed absent.`,
+      cost: 'No on-chain cost; evidence review only',
+      time: '10–15 minutes',
     },
     {
-      text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot.`,
-      cost: `gas $0; capital $${capital} stays in the position`,
-      time: `${hold} days`,
+      text: `If an official campaign exists, extract its published start/end dates, eligible networks, required actions, wallet or region restrictions, anti-Sybil conditions, minimums, exclusions and reward formula. Confirm that the terms are still current and preserve the source URLs and capture time. Do not invent qualifying actions or holding periods.`,
+      cost: 'No on-chain cost; campaign terms must be verified first',
+      time: '10–20 minutes',
     },
     {
-      text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes — never from a link in a chat, an ad or a DM.`,
-      cost: 'gas $0 to check; never pay to claim',
-      time: '10 minutes',
+      text: `Build a transaction-level cost and risk sheet only after the exact eligible actions are known. Obtain a current gas quote, approval and execution fees, bridge or swap spread, exit cost, minimum capital, lockup, withdrawal constraints, liquidity and smart-contract risks. TVL is not a deposit recommendation and cannot determine a safe capital amount.`,
+      cost: 'Not estimable from this snapshot; no capital or gas budget is provided',
+      time: '10–20 minutes',
     },
     {
-      text: `Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.`,
-      cost: 'gas $0; nothing but the log',
-      time: '5 minutes',
+      text: `Decision gate for ${p.name}: mark READY FOR USER REVIEW only when official campaign terms, contract addresses, costs, risks and eligibility are documented with dated primary-source evidence. Obtain the user's explicit approval before any wallet connection, signature or transaction. If evidence is missing or ambiguous, record NO ACTION and keep campaign status UNVERIFIED.`,
+      cost: 'No transaction without evidence and explicit user approval',
+      time: '5 minutes to document decision',
     },
   ];
 }
@@ -494,8 +471,12 @@ export function buildBoard(snapshot: Snapshot, model: OrbitModel = MODEL): Board
   });
   scored.sort((a, b) => b.v.base - a.v.base || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
   return scored.map((s, i) => {
-    const capital = capitalFor(s.p);
-    const gas = (capital >= 150 ? 8 : 4) + 8;
+    const priority = researchPriorityFor(s.v.base, s.age);
+    const priorityReason = priority === 'review'
+      ? 'High valuation proxy and tracked age; verify primary-source campaign evidence before considering activity.'
+      : priority === 'watch'
+        ? 'Valuation proxy crosses the watch threshold; campaign and contract evidence remain unverified.'
+        : 'Below the current research-priority threshold; monitor data and do not infer launch or reward likelihood.';
     return {
       rank: i + 1,
       slug: s.p.slug,
@@ -515,9 +496,12 @@ export function buildBoard(snapshot: Snapshot, model: OrbitModel = MODEL): Board
       high_value_usd: s.v.high,
       confidence: s.conf,
       comparable_count: sameCat.get(s.p.category ?? '') ?? 0,
-      verdict: verdictFor(s.v.base, s.age),
-      farm_gas_usd: gas,
-      capital_at_risk_usd: capital,
+      research_priority: priority,
+      research_priority_reason: priorityReason,
+      campaign_status: 'unverified' as const,
+      evidence_status: 'snapshot-only' as const,
+      farm_gas_usd: null,
+      capital_at_risk_usd: null,
       model: {
         a: model.a,
         b: model.b,
@@ -597,9 +581,12 @@ export function radarRow(row: BoardRow): RadarRow {
     high_value_usd: row.high_value_usd,
     confidence: row.confidence,
     comparable_count: row.comparable_count,
-    verdict: row.verdict,
-    farm_gas_usd: row.farm_gas_usd,
-    capital_at_risk_usd: row.capital_at_risk_usd,
+    research_priority: row.research_priority,
+    research_priority_reason: row.research_priority_reason,
+    campaign_status: row.campaign_status,
+    evidence_status: row.evidence_status,
+    farm_gas_usd: null,
+    capital_at_risk_usd: null,
     band: row.model.band,
   };
 }
@@ -629,10 +616,19 @@ export function buildRadar(snapshot: Snapshot, model: OrbitModel = MODEL): { boa
       duplicated_gecko_id: census.duplicated_gecko_id,
       valid_comparables: census.valid_comparables,
       fitted_comparables: census.fitted_comparables,
+      cv_unique_tokens: VALIDATION.cv_unique_tokens,
+      cv_repeats: VALIDATION.cv_repeats,
+      cv_folds: VALIDATION.cv_folds,
+      cv_predictions_per_candidate: VALIDATION.cv_predictions_per_candidate,
       baseline_log_mae: VALIDATION.baseline_log_mae,
+      category_shrunk_log_mae: VALIDATION.category_shrunk_log_mae,
       full_regression_log_mae: VALIDATION.full_regression_log_mae,
+      weighted_knn_log_mae: VALIDATION.weighted_knn_log_mae,
       tvl_only_log_mae: VALIDATION.tvl_only_log_mae,
       ensemble_log_mae: VALIDATION.ensemble_log_mae,
+      reduced_baseline_log_mae: VALIDATION.reduced_baseline_log_mae,
+      reduced_tvl_only_log_mae: VALIDATION.reduced_tvl_only_log_mae,
+      calibration_oof_predictions: VALIDATION.calibration_oof_predictions,
       growth_coefficient: VALIDATION.growth_coefficient,
       interval_80_low: VALIDATION.interval_80_low,
       interval_80_high: VALIDATION.interval_80_high,
@@ -655,17 +651,25 @@ export function parseSnapshot(text: string): Snapshot {
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new SnapshotError('snapshot.json is not a JSON object');
   const o = raw as Record<string, unknown>;
-  if (typeof o.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.as_of)) throw new SnapshotError('snapshot.json has no as_of date');
-  if (typeof o.source !== 'string') throw new SnapshotError('snapshot.json has no source');
+  if (typeof o.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.as_of) || new Date(`${o.as_of}T00:00:00Z`).toISOString().slice(0, 10) !== o.as_of) throw new SnapshotError('snapshot.json has no valid UTC as_of date');
+  if (typeof o.source !== 'string' || o.source.trim().length < 10) throw new SnapshotError('snapshot.json has no usable source description');
   if (typeof o.floor_usd !== 'number' || !Number.isSafeInteger(o.floor_usd) || o.floor_usd <= 0) throw new SnapshotError('snapshot.json has no floor_usd');
-  if (!Array.isArray(o.protocols)) throw new SnapshotError('snapshot.json has no protocols array');
-  if (!Array.isArray(o.watchlist) || o.watchlist.some((s) => typeof s !== 'string')) throw new SnapshotError('snapshot.json has no watchlist of slugs');
+  if (!Array.isArray(o.protocols) || o.protocols.length === 0) throw new SnapshotError('snapshot.json has no non-empty protocols array');
+  if (!Array.isArray(o.watchlist) || o.watchlist.length === 0 || o.watchlist.some((s) => typeof s !== 'string' || s.trim().length === 0)) throw new SnapshotError('snapshot.json has no usable watchlist of slugs');
   const protocols = o.protocols.map((v, i) => {
     if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new SnapshotError(`snapshot.json's protocol ${i} is not an object`);
     const p = v as Record<string, unknown>;
-    if (typeof p.slug !== 'string' || typeof p.name !== 'string' || typeof p.tvl_usd !== 'number' || !Number.isFinite(p.tvl_usd)) {
-      throw new SnapshotError(`snapshot.json's protocol ${i} lacks a slug, a name or a TVL`);
+    if (typeof p.slug !== 'string' || p.slug.trim().length === 0 || typeof p.name !== 'string' || p.name.trim().length === 0 || typeof p.tvl_usd !== 'number' || !Number.isFinite(p.tvl_usd) || p.tvl_usd < 0) {
+      throw new SnapshotError(`snapshot.json's protocol ${i} lacks a valid slug, name or non-negative TVL`);
     }
+    // Market cap must be a finite number or absent. A non-positive value is NOT a parse error:
+    // the sealed snapshot carries DefiLlama's sentinel mcap_usd = -1 for one protocol
+    // (autofinance, whose token is dead) and 0 for fifteen dead-token rows. Those rows are
+    // excluded downstream (fittedComparables/tokenCensus require mcap > 0), never valued.
+    if (p.mcap_usd !== null && p.mcap_usd !== undefined && (typeof p.mcap_usd !== 'number' || !Number.isFinite(p.mcap_usd))) throw new SnapshotError(`snapshot.json's protocol ${i} has an invalid market cap`);
+    if (p.change_7d !== null && p.change_7d !== undefined && (typeof p.change_7d !== 'number' || !Number.isFinite(p.change_7d))) throw new SnapshotError(`snapshot.json's protocol ${i} has an invalid 7-day change`);
+    if (p.chains !== undefined && (!Array.isArray(p.chains) || p.chains.some((c) => typeof c !== 'string'))) throw new SnapshotError(`snapshot.json's protocol ${i} has invalid chains`);
+    if (p.listed_at !== null && p.listed_at !== undefined && (typeof p.listed_at !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.listed_at) || new Date(`${p.listed_at}T00:00:00Z`).toISOString().slice(0, 10) !== p.listed_at)) throw new SnapshotError(`snapshot.json's protocol ${i} has an invalid listed_at date`);
     return {
       slug: p.slug,
       name: p.name,
@@ -679,12 +683,21 @@ export function parseSnapshot(text: string): Snapshot {
       symbol: typeof p.symbol === 'string' ? p.symbol : null,
     };
   });
+  const slugSet = new Set<string>();
+  for (const protocol of protocols) {
+    if (slugSet.has(protocol.slug)) throw new SnapshotError(`snapshot.json has duplicate protocol slug ${protocol.slug}`);
+    slugSet.add(protocol.slug);
+  }
+  const watchlist = o.watchlist as string[];
+  if (new Set(watchlist).size !== watchlist.length) throw new SnapshotError('snapshot.json has duplicate watchlist slugs');
+  const missingWatchlist = watchlist.filter((slug) => !slugSet.has(slug));
+  if (missingWatchlist.length) throw new SnapshotError(`snapshot.json watchlist references missing slug ${missingWatchlist[0]}`);
   return {
     as_of: o.as_of,
     source: o.source,
     floor_usd: o.floor_usd,
     protocols,
-    watchlist: o.watchlist as string[],
+    watchlist,
   };
 }
 
@@ -705,6 +718,9 @@ export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null
     for (const s of steps) if (s.length < 20 || s.length > 600) return `${r.slug} has a farm step of ${s.length} characters`;
     if (!Number.isSafeInteger(r.implied_value_usd) || r.implied_value_usd <= 0) return `${r.slug} has implied value ${r.implied_value_usd}`;
     if (r.low_value_usd > r.implied_value_usd || r.high_value_usd < r.implied_value_usd) return `${r.slug} has an interval that does not hold its base value`;
+    if (r.campaign_status !== 'unverified' || r.evidence_status !== 'snapshot-only') return `${r.slug} overstates campaign evidence`;
+    if (r.farm_gas_usd !== null || r.capital_at_risk_usd !== null) return `${r.slug} contains unsupported cost estimates`;
+    if (!['review', 'watch', 'low'].includes(r.research_priority)) return `${r.slug} has an invalid research priority`;
   }
   return null;
 }

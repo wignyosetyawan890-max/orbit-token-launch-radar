@@ -141,3 +141,9 @@ tbody tr[data-selected="true"] { background: rgba(61,220,151,.08); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Research-priority and evidence states; deliberately neutral because these
+   are triage labels, not endorsements or confirmation of an active campaign. */
+.pill.review { color: var(--amber); border-color: var(--amber); }
+.pill.watch { color: var(--cobalt); border-color: var(--cobalt-dim); }
+.pill.low, .pill.unverified { color: var(--muted); border-color: var(--border); }

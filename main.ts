@@ -158,6 +158,6 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `ORBIT: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside, ${radar.explorer_size} in the explorer)\n` +
-    `ORBIT: model orbit-1 on ${radar.comparable_size} fitted comparables (unique gecko_id ${radar.validation.unique_gecko_id}, ${radar.validation.valid_comparables} valid), OOF log-MAE ${radar.validation.tvl_only_log_mae} vs baseline ${radar.validation.baseline_log_mae}\n` +
+    `ORBIT: model orbit-1 on ${radar.comparable_size} fitted comparables (unique gecko_id ${radar.validation.unique_gecko_id}, ${radar.validation.valid_comparables} valid), model-selection log-MAE ${radar.validation.tvl_only_log_mae} vs baseline ${radar.validation.baseline_log_mae}\n` +
     `ORBIT: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (3 files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );
